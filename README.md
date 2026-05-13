@@ -1,6 +1,6 @@
 # FullTank Garage API
 
-Go/Gin API สำหรับ FullTank Garage ใช้ฐานจาก MikiJapan และเพิ่มระบบรับประกันสินค้า, Serial Number, Film และ Promotion สำหรับ LINE LIFF apps กับ Admin Home
+Go/Gin API สำหรับ FullTank Garage รองรับระบบรับประกันสินค้า, Serial Number, Film และ Promotion สำหรับ LINE LIFF apps กับ Admin Home
 
 ## Core Endpoints
 

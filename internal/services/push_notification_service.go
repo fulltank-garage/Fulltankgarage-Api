@@ -25,7 +25,7 @@ type PushNotificationService struct {
 	repo *repositories.PushSubscriptionRepository
 }
 
-const defaultWebPushSubscriber = "https://miki-japan-admin.vercel.app"
+const defaultWebPushSubscriber = "https://fulltankgarage-admin.vercel.app"
 
 func NewPushNotificationService(cfg config.Config, repo *repositories.PushSubscriptionRepository) *PushNotificationService {
 	return &PushNotificationService{
