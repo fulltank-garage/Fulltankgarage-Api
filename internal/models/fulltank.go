@@ -1,0 +1,88 @@
+package models
+
+import (
+	"time"
+
+	"github.com/google/uuid"
+	"gorm.io/gorm"
+)
+
+type SerialNumber struct {
+	ID           uint      `gorm:"primaryKey;autoIncrement" json:"id"`
+	SerialNumber string    `gorm:"size:50;not null;uniqueIndex" json:"serialNumber"`
+	Status       string    `gorm:"size:16;not null;default:available;index" json:"status"`
+	CreatedAt    time.Time `json:"createdAt"`
+}
+
+func (SerialNumber) TableName() string {
+	return "serial_numbers"
+}
+
+type WarrantyRegistration struct {
+	ID            uint       `gorm:"primaryKey;autoIncrement" json:"id"`
+	UUID          string     `gorm:"type:uuid;uniqueIndex" json:"uuid"`
+	SerialNumber  string     `gorm:"size:50;not null;uniqueIndex" json:"serialNumber"`
+	CustomerName  string     `gorm:"size:100" json:"customerName"`
+	Phone         string     `gorm:"size:20" json:"phone"`
+	CarModel      string     `gorm:"size:100" json:"carModel"`
+	LicensePlate  string     `gorm:"size:30" json:"licensePlate"`
+	FilmBrand     string     `gorm:"size:100" json:"filmBrand"`
+	FilmModel     string     `gorm:"size:100" json:"filmModel"`
+	InstallDate   *time.Time `gorm:"type:date" json:"installDate"`
+	Branch        string     `gorm:"size:100" json:"branch"`
+	InstallerName string     `gorm:"size:100" json:"installerName"`
+	ReceiptFile   string     `gorm:"size:255" json:"receiptFile"`
+	Remarks       string     `gorm:"type:text" json:"remarks"`
+
+	LineUserID      string `gorm:"size:128;index" json:"lineUserId,omitempty"`
+	LineDisplayName string `gorm:"size:255" json:"lineDisplayName,omitempty"`
+	LinePictureURL  string `gorm:"size:1024" json:"linePictureUrl,omitempty"`
+
+	CreatedAt time.Time `json:"createdAt"`
+	UpdatedAt time.Time `json:"updatedAt"`
+}
+
+func (WarrantyRegistration) TableName() string {
+	return "warranty_registrations"
+}
+
+func (w *WarrantyRegistration) BeforeCreate(_ *gorm.DB) error {
+	if w.UUID == "" {
+		w.UUID = uuid.NewString()
+	}
+
+	return nil
+}
+
+type FilmProduct struct {
+	ID          uint      `gorm:"primaryKey;autoIncrement" json:"id"`
+	Slug        string    `gorm:"size:120;not null;uniqueIndex" json:"slug"`
+	Name        string    `gorm:"size:160;not null" json:"name"`
+	Logo        string    `gorm:"size:32" json:"logo"`
+	Summary     string    `gorm:"size:255" json:"summary"`
+	Description string    `gorm:"type:text" json:"description"`
+	ImageURL    string    `gorm:"size:1024" json:"imageUrl"`
+	IsActive    bool      `gorm:"not null;default:true" json:"isActive"`
+	CreatedAt   time.Time `json:"createdAt"`
+	UpdatedAt   time.Time `json:"updatedAt"`
+}
+
+func (FilmProduct) TableName() string {
+	return "film_products"
+}
+
+type Promotion struct {
+	ID          uint       `gorm:"primaryKey;autoIncrement" json:"id"`
+	Title       string     `gorm:"size:180;not null" json:"title"`
+	Description string     `gorm:"type:text" json:"description"`
+	ImageURL    string     `gorm:"size:1024" json:"imageUrl"`
+	IsActive    bool       `gorm:"not null;default:true" json:"isActive"`
+	StartsAt    *time.Time `gorm:"type:date" json:"startsAt"`
+	EndsAt      *time.Time `gorm:"type:date" json:"endsAt"`
+	CreatedAt   time.Time  `json:"createdAt"`
+	UpdatedAt   time.Time  `json:"updatedAt"`
+}
+
+func (Promotion) TableName() string {
+	return "promotions"
+}
