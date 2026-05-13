@@ -137,6 +137,68 @@ func (h *FulltankHandler) RegisterWarranty(c *gin.Context) {
 	})
 }
 
+func (h *FulltankHandler) LinkWarranty(c *gin.Context) {
+	var input struct {
+		SerialNumber    string `json:"serialNumber"`
+		LineUserID      string `json:"lineUserId"`
+		LineDisplayName string `json:"lineDisplayName"`
+		LinePictureURL  string `json:"linePictureUrl"`
+	}
+	_ = c.ShouldBindJSON(&input)
+
+	serial := normalizeSerial(input.SerialNumber)
+	lineUserID := strings.TrimSpace(input.LineUserID)
+	if serial == "" || lineUserID == "" {
+		httpx.BadRequest(c, "กรุณาเปิดผ่าน LINE และกรอก Serial Number")
+		return
+	}
+
+	var item models.WarrantyRegistration
+	if err := h.db.Where("serial_number = ?", serial).First(&item).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			httpx.NotFound(c, "ยังไม่พบข้อมูลบัตรรับประกัน")
+			return
+		}
+		httpx.Internal(c, "โหลดข้อมูลบัตรรับประกันไม่สำเร็จ")
+		return
+	}
+
+	if item.LineUserID != "" && item.LineUserID != lineUserID {
+		httpx.Conflict(c, "Serial Number นี้ผูกกับ LINE อื่นแล้ว")
+		return
+	}
+
+	updates := map[string]any{"line_user_id": lineUserID}
+	if strings.TrimSpace(input.LineDisplayName) != "" {
+		updates["line_display_name"] = strings.TrimSpace(input.LineDisplayName)
+	}
+	if strings.TrimSpace(input.LinePictureURL) != "" {
+		updates["line_picture_url"] = strings.TrimSpace(input.LinePictureURL)
+	}
+	if err := h.db.Model(&item).Updates(updates).Error; err != nil {
+		httpx.Internal(c, "ผูกบัตรรับประกันกับ LINE ไม่สำเร็จ")
+		return
+	}
+	if err := h.db.Where("serial_number = ?", serial).First(&item).Error; err != nil {
+		httpx.Internal(c, "โหลดข้อมูลบัตรรับประกันไม่สำเร็จ")
+		return
+	}
+
+	richMenuSynced := false
+	if h.richMenu != nil {
+		if err := h.richMenu.LinkMemberRichMenu(c.Request.Context(), lineUserID); err != nil {
+			log.Printf("link member rich menu after warranty link failed lineUserID=%s serial=%s: %v", lineUserID, serial, err)
+		} else {
+			richMenuSynced = true
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"data":           item,
+		"richMenuSynced": richMenuSynced,
+	})
+}
+
 func (h *FulltankHandler) WarrantyStatus(c *gin.Context) {
 	lineUserID := strings.TrimSpace(c.Query("lineUserId"))
 	if lineUserID == "" {
