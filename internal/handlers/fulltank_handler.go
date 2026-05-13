@@ -244,7 +244,28 @@ func (h *FulltankHandler) WarrantyStatus(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, item)
+	richMenuSynced := false
+	currentRichMenuID := ""
+	if h.richMenu != nil {
+		if err := h.richMenu.LinkMemberRichMenu(c.Request.Context(), lineUserID); err != nil {
+			log.Printf("link member rich menu during warranty status failed lineUserID=%s serial=%s: %v", lineUserID, item.SerialNumber, err)
+		} else {
+			richMenuSynced = true
+			currentRichMenuID = h.richMenu.MemberRichMenuID()
+			if linkedRichMenuID, err := h.richMenu.GetUserRichMenuID(c.Request.Context(), lineUserID); err != nil {
+				log.Printf("get rich menu during warranty status failed lineUserID=%s serial=%s: %v", lineUserID, item.SerialNumber, err)
+			} else if linkedRichMenuID != "" {
+				currentRichMenuID = linkedRichMenuID
+			}
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"data":             item,
+		"richMenuSynced":   richMenuSynced,
+		"linkedRichMenuId": currentRichMenuID,
+		"targetRichMenuId": h.targetMemberRichMenuID(),
+	})
 }
 
 func (h *FulltankHandler) ListRegistrations(c *gin.Context) {
