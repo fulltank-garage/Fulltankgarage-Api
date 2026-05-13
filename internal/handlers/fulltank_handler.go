@@ -123,17 +123,27 @@ func (h *FulltankHandler) RegisterWarranty(c *gin.Context) {
 	}
 
 	richMenuSynced := false
+	currentRichMenuID := ""
 	if h.richMenu != nil && strings.TrimSpace(created.LineUserID) != "" {
 		if err := h.richMenu.LinkMemberRichMenu(c.Request.Context(), created.LineUserID); err != nil {
 			log.Printf("link member rich menu after warranty registration failed lineUserID=%s serial=%s: %v", created.LineUserID, created.SerialNumber, err)
 		} else {
 			richMenuSynced = true
+			currentRichMenuID = h.richMenu.MemberRichMenuID()
+			if linkedRichMenuID, err := h.richMenu.GetUserRichMenuID(c.Request.Context(), created.LineUserID); err != nil {
+				log.Printf("get rich menu after warranty registration failed lineUserID=%s serial=%s: %v", created.LineUserID, created.SerialNumber, err)
+			} else if linkedRichMenuID != "" {
+				currentRichMenuID = linkedRichMenuID
+			}
+			log.Printf("link member rich menu after warranty registration succeeded lineUserID=%s serial=%s richMenuID=%s", created.LineUserID, created.SerialNumber, currentRichMenuID)
 		}
 	}
 
 	c.JSON(http.StatusCreated, gin.H{
-		"data":           created,
-		"richMenuSynced": richMenuSynced,
+		"data":             created,
+		"richMenuSynced":   richMenuSynced,
+		"linkedRichMenuId": currentRichMenuID,
+		"targetRichMenuId": h.targetMemberRichMenuID(),
 	})
 }
 
@@ -185,18 +195,36 @@ func (h *FulltankHandler) LinkWarranty(c *gin.Context) {
 	}
 
 	richMenuSynced := false
+	currentRichMenuID := ""
 	if h.richMenu != nil {
 		if err := h.richMenu.LinkMemberRichMenu(c.Request.Context(), lineUserID); err != nil {
 			log.Printf("link member rich menu after warranty link failed lineUserID=%s serial=%s: %v", lineUserID, serial, err)
 		} else {
 			richMenuSynced = true
+			currentRichMenuID = h.richMenu.MemberRichMenuID()
+			if linkedRichMenuID, err := h.richMenu.GetUserRichMenuID(c.Request.Context(), lineUserID); err != nil {
+				log.Printf("get rich menu after warranty link failed lineUserID=%s serial=%s: %v", lineUserID, serial, err)
+			} else if linkedRichMenuID != "" {
+				currentRichMenuID = linkedRichMenuID
+			}
+			log.Printf("link member rich menu after warranty link succeeded lineUserID=%s serial=%s richMenuID=%s", lineUserID, serial, currentRichMenuID)
 		}
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"data":           item,
-		"richMenuSynced": richMenuSynced,
+		"data":             item,
+		"richMenuSynced":   richMenuSynced,
+		"linkedRichMenuId": currentRichMenuID,
+		"targetRichMenuId": h.targetMemberRichMenuID(),
 	})
+}
+
+func (h *FulltankHandler) targetMemberRichMenuID() string {
+	if h.richMenu == nil {
+		return ""
+	}
+
+	return h.richMenu.MemberRichMenuID()
 }
 
 func (h *FulltankHandler) WarrantyStatus(c *gin.Context) {

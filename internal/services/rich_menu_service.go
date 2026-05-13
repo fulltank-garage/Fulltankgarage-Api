@@ -113,6 +113,54 @@ func (s *RichMenuService) LinkMemberRichMenu(ctx context.Context, lineUserID str
 	return s.linkRichMenu(ctx, lineUserID, s.memberRichMenuID)
 }
 
+func (s *RichMenuService) MemberRichMenuID() string {
+	return strings.TrimSpace(s.memberRichMenuID)
+}
+
+func (s *RichMenuService) GetUserRichMenuID(ctx context.Context, lineUserID string) (string, error) {
+	lineUserID = strings.TrimSpace(lineUserID)
+	if lineUserID == "" || s.channelAccessToken == "" {
+		return "", nil
+	}
+
+	endpoint := fmt.Sprintf(
+		"%s/user/%s/richmenu",
+		s.endpoint,
+		url.PathEscape(lineUserID),
+	)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Authorization", "Bearer "+s.channelAccessToken)
+
+	res, err := s.httpClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer res.Body.Close()
+
+	if res.StatusCode == http.StatusNotFound {
+		return "", nil
+	}
+	if res.StatusCode < http.StatusOK || res.StatusCode >= http.StatusMultipleChoices {
+		message, err := decodeLineError(res)
+		if err != nil {
+			return "", err
+		}
+		return "", validationError(message)
+	}
+
+	var payload struct {
+		RichMenuID string `json:"richMenuId"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&payload); err != nil {
+		return "", err
+	}
+
+	return strings.TrimSpace(payload.RichMenuID), nil
+}
+
 func (s *RichMenuService) LinkVerifyRichMenu(ctx context.Context, lineUserID string) error {
 	return s.linkRichMenu(ctx, lineUserID, s.verifyRichMenuID)
 }
