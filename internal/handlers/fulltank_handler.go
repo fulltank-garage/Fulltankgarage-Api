@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"time"
@@ -18,10 +19,11 @@ import (
 type FulltankHandler struct {
 	db        *gorm.DB
 	uploadDir string
+	baseURL   string
 }
 
-func NewFulltankHandler(db *gorm.DB, uploadDir string) *FulltankHandler {
-	return &FulltankHandler{db: db, uploadDir: uploadDir}
+func NewFulltankHandler(db *gorm.DB, uploadDir string, baseURL string) *FulltankHandler {
+	return &FulltankHandler{db: db, uploadDir: uploadDir, baseURL: strings.TrimRight(baseURL, "/")}
 }
 
 func (h *FulltankHandler) CheckSerial(c *gin.Context) {
@@ -264,6 +266,38 @@ func (h *FulltankHandler) DeletePromotion(c *gin.Context) {
 	c.Status(http.StatusNoContent)
 }
 
+func (h *FulltankHandler) UploadImage(c *gin.Context) {
+	file, err := c.FormFile("image")
+	if err != nil {
+		httpx.BadRequest(c, "กรุณาเลือกไฟล์รูปภาพ")
+		return
+	}
+	if !isImageUpload(file.Filename, file.Header.Get("Content-Type")) {
+		httpx.BadRequest(c, "รองรับเฉพาะไฟล์รูปภาพเท่านั้น")
+		return
+	}
+
+	imageDir := filepath.Join(h.uploadDir, "images")
+	if err := os.MkdirAll(imageDir, 0o755); err != nil {
+		httpx.Internal(c, "เตรียมพื้นที่จัดเก็บรูปไม่สำเร็จ")
+		return
+	}
+
+	ext := strings.ToLower(filepath.Ext(file.Filename))
+	if ext == ".jpeg" {
+		ext = ".jpg"
+	}
+	filename := time.Now().Format("20060102150405") + "-" + slugify(strings.TrimSuffix(file.Filename, filepath.Ext(file.Filename))) + ext
+	target := filepath.Join(imageDir, filename)
+	if err := c.SaveUploadedFile(file, target); err != nil {
+		httpx.Internal(c, "อัปโหลดรูปไม่สำเร็จ")
+		return
+	}
+
+	publicPath := "/" + path.Join("uploads", "images", filename)
+	c.JSON(http.StatusCreated, gin.H{"imageUrl": h.absoluteURL(publicPath)})
+}
+
 func (h *FulltankHandler) saveReceipt(c *gin.Context) (string, error) {
 	file, err := c.FormFile("receiptFile")
 	if err != nil {
@@ -289,6 +323,20 @@ func (h *FulltankHandler) saveReceipt(c *gin.Context) (string, error) {
 	}
 
 	return "/uploads/receipts/" + filename, nil
+}
+
+func (h *FulltankHandler) absoluteURL(publicPath string) string {
+	if h.baseURL == "" {
+		return publicPath
+	}
+
+	return h.baseURL + publicPath
+}
+
+func isImageUpload(filename string, contentType string) bool {
+	ext := strings.ToLower(filepath.Ext(filename))
+	allowedExt := ext == ".jpg" || ext == ".jpeg" || ext == ".png" || ext == ".webp" || ext == ".gif"
+	return allowedExt && strings.HasPrefix(strings.ToLower(contentType), "image/")
 }
 
 var (

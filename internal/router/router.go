@@ -34,7 +34,7 @@ func New(deps Dependencies) *gin.Engine {
 	memberHandler := handlers.NewMemberHandler(deps.MemberService)
 	memberEventsHandler := handlers.NewMemberEventsHandler(deps.AuthService, deps.MemberEvents)
 	pushNotificationHandler := handlers.NewPushNotificationHandler(deps.PushService)
-	fulltankHandler := handlers.NewFulltankHandler(deps.DB, deps.Config.UploadDir)
+	fulltankHandler := handlers.NewFulltankHandler(deps.DB, deps.Config.UploadDir, deps.Config.BaseURL)
 
 	engine.GET("/health", healthHandler.Check)
 
@@ -88,6 +88,9 @@ func New(deps Dependencies) *gin.Engine {
 	adminPromotions.POST("", fulltankHandler.CreatePromotion)
 	adminPromotions.PATCH("/:id", fulltankHandler.UpdatePromotion)
 	adminPromotions.DELETE("/:id", fulltankHandler.DeletePromotion)
+
+	adminUploads := api.Group("/uploads", middleware.AdminAuth(deps.AuthService))
+	adminUploads.POST("/images", fulltankHandler.UploadImage)
 
 	pushNotifications := api.Group("/push-notifications", middleware.AdminAuth(deps.AuthService))
 	pushNotifications.GET("/public-key", pushNotificationHandler.PublicKey)
