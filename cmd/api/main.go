@@ -67,6 +67,7 @@ func main() {
 		DB:            db,
 		MemberService: memberService,
 		AuthService:   authService,
+		RichMenu:      richMenuService,
 		PushService:   pushNotificationService,
 		MemberEvents:  memberEvents,
 	})

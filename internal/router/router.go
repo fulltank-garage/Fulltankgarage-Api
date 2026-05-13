@@ -16,6 +16,7 @@ type Dependencies struct {
 	DB            *gorm.DB
 	MemberService *services.MemberService
 	AuthService   *services.AuthService
+	RichMenu      *services.RichMenuService
 	PushService   *services.PushNotificationService
 	MemberEvents  *realtime.Hub
 }
@@ -34,7 +35,7 @@ func New(deps Dependencies) *gin.Engine {
 	memberHandler := handlers.NewMemberHandler(deps.MemberService)
 	memberEventsHandler := handlers.NewMemberEventsHandler(deps.AuthService, deps.MemberEvents)
 	pushNotificationHandler := handlers.NewPushNotificationHandler(deps.PushService)
-	fulltankHandler := handlers.NewFulltankHandler(deps.DB, deps.Config.UploadDir, deps.Config.BaseURL)
+	fulltankHandler := handlers.NewFulltankHandler(deps.DB, deps.Config.UploadDir, deps.Config.BaseURL, deps.RichMenu)
 
 	engine.GET("/health", healthHandler.Check)
 

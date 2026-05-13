@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"errors"
+	"log"
 	"net/http"
 	"os"
 	"path"
@@ -14,16 +15,23 @@ import (
 
 	"github.com/fulltank-garage/fulltankgarage-api/internal/httpx"
 	"github.com/fulltank-garage/fulltankgarage-api/internal/models"
+	"github.com/fulltank-garage/fulltankgarage-api/internal/services"
 )
 
 type FulltankHandler struct {
 	db        *gorm.DB
 	uploadDir string
 	baseURL   string
+	richMenu  *services.RichMenuService
 }
 
-func NewFulltankHandler(db *gorm.DB, uploadDir string, baseURL string) *FulltankHandler {
-	return &FulltankHandler{db: db, uploadDir: uploadDir, baseURL: strings.TrimRight(baseURL, "/")}
+func NewFulltankHandler(db *gorm.DB, uploadDir string, baseURL string, richMenu *services.RichMenuService) *FulltankHandler {
+	return &FulltankHandler{
+		db:        db,
+		uploadDir: uploadDir,
+		baseURL:   strings.TrimRight(baseURL, "/"),
+		richMenu:  richMenu,
+	}
 }
 
 func (h *FulltankHandler) CheckSerial(c *gin.Context) {
@@ -114,7 +122,19 @@ func (h *FulltankHandler) RegisterWarranty(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusCreated, created)
+	richMenuSynced := false
+	if h.richMenu != nil && strings.TrimSpace(created.LineUserID) != "" {
+		if err := h.richMenu.LinkMemberRichMenu(c.Request.Context(), created.LineUserID); err != nil {
+			log.Printf("link member rich menu after warranty registration failed lineUserID=%s serial=%s: %v", created.LineUserID, created.SerialNumber, err)
+		} else {
+			richMenuSynced = true
+		}
+	}
+
+	c.JSON(http.StatusCreated, gin.H{
+		"data":           created,
+		"richMenuSynced": richMenuSynced,
+	})
 }
 
 func (h *FulltankHandler) ListRegistrations(c *gin.Context) {
