@@ -137,6 +137,26 @@ func (h *FulltankHandler) RegisterWarranty(c *gin.Context) {
 	})
 }
 
+func (h *FulltankHandler) WarrantyStatus(c *gin.Context) {
+	lineUserID := strings.TrimSpace(c.Query("lineUserId"))
+	if lineUserID == "" {
+		httpx.BadRequest(c, "ไม่พบข้อมูล LINE สำหรับตรวจสอบบัตรรับประกัน")
+		return
+	}
+
+	var item models.WarrantyRegistration
+	if err := h.db.Where("line_user_id = ?", lineUserID).Order("created_at DESC").First(&item).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			httpx.NotFound(c, "ยังไม่พบข้อมูลบัตรรับประกัน")
+			return
+		}
+		httpx.Internal(c, "โหลดข้อมูลบัตรรับประกันไม่สำเร็จ")
+		return
+	}
+
+	c.JSON(http.StatusOK, item)
+}
+
 func (h *FulltankHandler) ListRegistrations(c *gin.Context) {
 	var items []models.WarrantyRegistration
 	if err := h.db.Order("created_at DESC").Find(&items).Error; err != nil {

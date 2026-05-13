@@ -56,6 +56,7 @@ func New(deps Dependencies) *gin.Engine {
 	api.POST("/line/webhook", lineWebhookHandler.Handle)
 
 	api.GET("/serial-numbers/:serial", fulltankHandler.CheckSerial)
+	api.GET("/warranty/status", fulltankHandler.WarrantyStatus)
 	api.POST("/warranty/register", fulltankHandler.RegisterWarranty)
 	api.GET("/public/films", fulltankHandler.ListFilms)
 	api.GET("/public/promotions", fulltankHandler.ListPromotions)
