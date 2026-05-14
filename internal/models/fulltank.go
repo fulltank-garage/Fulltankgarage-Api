@@ -75,6 +75,7 @@ type Promotion struct {
 	ID          uint       `gorm:"primaryKey;autoIncrement" json:"id"`
 	Title       string     `gorm:"size:180;not null" json:"title"`
 	Description string     `gorm:"type:text" json:"description"`
+	Detail      string     `gorm:"type:text" json:"detail"`
 	ImageURL    string     `gorm:"size:1024" json:"imageUrl"`
 	IsActive    bool       `gorm:"not null;default:true" json:"isActive"`
 	StartsAt    *time.Time `gorm:"type:date" json:"startsAt"`

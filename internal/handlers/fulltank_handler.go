@@ -40,6 +40,7 @@ func NewFulltankHandler(db *gorm.DB, uploadDir string, baseURL string, richMenu 
 type promotionPayload struct {
 	Title       string `json:"title"`
 	Description string `json:"description"`
+	Detail      string `json:"detail"`
 	ImageURL    string `json:"imageUrl"`
 	IsActive    *bool  `json:"isActive"`
 	StartsAt    string `json:"startsAt"`
@@ -65,6 +66,7 @@ func (payload promotionPayload) toModel() (models.Promotion, error) {
 	return models.Promotion{
 		Title:       strings.TrimSpace(payload.Title),
 		Description: strings.TrimSpace(payload.Description),
+		Detail:      strings.TrimSpace(payload.Detail),
 		ImageURL:    strings.TrimSpace(payload.ImageURL),
 		IsActive:    isActive,
 		StartsAt:    startsAt,
@@ -503,6 +505,7 @@ func (h *FulltankHandler) UpdatePromotion(c *gin.Context) {
 	updates := map[string]interface{}{
 		"title":       input.Title,
 		"description": input.Description,
+		"detail":      input.Detail,
 		"image_url":   input.ImageURL,
 		"is_active":   input.IsActive,
 		"starts_at":   input.StartsAt,
