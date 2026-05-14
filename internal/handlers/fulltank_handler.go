@@ -15,6 +15,7 @@ import (
 
 	"github.com/fulltank-garage/fulltankgarage-api/internal/httpx"
 	"github.com/fulltank-garage/fulltankgarage-api/internal/models"
+	"github.com/fulltank-garage/fulltankgarage-api/internal/realtime"
 	"github.com/fulltank-garage/fulltankgarage-api/internal/services"
 )
 
@@ -23,14 +24,16 @@ type FulltankHandler struct {
 	uploadDir string
 	baseURL   string
 	richMenu  *services.RichMenuService
+	events    *realtime.Hub
 }
 
-func NewFulltankHandler(db *gorm.DB, uploadDir string, baseURL string, richMenu *services.RichMenuService) *FulltankHandler {
+func NewFulltankHandler(db *gorm.DB, uploadDir string, baseURL string, richMenu *services.RichMenuService, events *realtime.Hub) *FulltankHandler {
 	return &FulltankHandler{
 		db:        db,
 		uploadDir: uploadDir,
 		baseURL:   strings.TrimRight(baseURL, "/"),
 		richMenu:  richMenu,
+		events:    events,
 	}
 }
 
@@ -63,6 +66,7 @@ func (h *FulltankHandler) RegisterWarranty(c *gin.Context) {
 	}
 
 	var created models.WarrantyRegistration
+	var usedSerial models.SerialNumber
 	err = h.db.Transaction(func(tx *gorm.DB) error {
 		var serialRecord models.SerialNumber
 		if err := tx.Clauses().Where("serial_number = ?", serial).First(&serialRecord).Error; err != nil {
@@ -106,7 +110,12 @@ func (h *FulltankHandler) RegisterWarranty(c *gin.Context) {
 			return err
 		}
 
-		return tx.Model(&serialRecord).Update("status", "used").Error
+		if err := tx.Model(&serialRecord).Update("status", "used").Error; err != nil {
+			return err
+		}
+		serialRecord.Status = "used"
+		usedSerial = serialRecord
+		return nil
 	})
 	if err != nil {
 		switch {
@@ -127,6 +136,7 @@ func (h *FulltankHandler) RegisterWarranty(c *gin.Context) {
 	if h.richMenu != nil && strings.TrimSpace(created.LineUserID) != "" {
 		if err := h.richMenu.LinkMemberRichMenu(c.Request.Context(), created.LineUserID); err != nil {
 			log.Printf("link member rich menu after warranty registration failed lineUserID=%s serial=%s: %v", created.LineUserID, created.SerialNumber, err)
+			h.publishRichMenuEvent(created.LineUserID, created.SerialNumber, false, currentRichMenuID, "warranty_registration", err.Error())
 		} else {
 			richMenuSynced = true
 			currentRichMenuID = h.richMenu.MemberRichMenuID()
@@ -136,8 +146,12 @@ func (h *FulltankHandler) RegisterWarranty(c *gin.Context) {
 				currentRichMenuID = linkedRichMenuID
 			}
 			log.Printf("link member rich menu after warranty registration succeeded lineUserID=%s serial=%s richMenuID=%s", created.LineUserID, created.SerialNumber, currentRichMenuID)
+			h.publishRichMenuEvent(created.LineUserID, created.SerialNumber, true, currentRichMenuID, "warranty_registration", "")
 		}
 	}
+
+	h.publishEvent("warranty_registration.created", created)
+	h.publishEvent("serial_number.updated", usedSerial)
 
 	c.JSON(http.StatusCreated, gin.H{
 		"data":             created,
@@ -199,6 +213,7 @@ func (h *FulltankHandler) LinkWarranty(c *gin.Context) {
 	if h.richMenu != nil {
 		if err := h.richMenu.LinkMemberRichMenu(c.Request.Context(), lineUserID); err != nil {
 			log.Printf("link member rich menu after warranty link failed lineUserID=%s serial=%s: %v", lineUserID, serial, err)
+			h.publishRichMenuEvent(lineUserID, serial, false, currentRichMenuID, "warranty_link", err.Error())
 		} else {
 			richMenuSynced = true
 			currentRichMenuID = h.richMenu.MemberRichMenuID()
@@ -208,8 +223,11 @@ func (h *FulltankHandler) LinkWarranty(c *gin.Context) {
 				currentRichMenuID = linkedRichMenuID
 			}
 			log.Printf("link member rich menu after warranty link succeeded lineUserID=%s serial=%s richMenuID=%s", lineUserID, serial, currentRichMenuID)
+			h.publishRichMenuEvent(lineUserID, serial, true, currentRichMenuID, "warranty_link", "")
 		}
 	}
+
+	h.publishEvent("warranty_registration.linked", item)
 
 	c.JSON(http.StatusOK, gin.H{
 		"data":             item,
@@ -225,6 +243,29 @@ func (h *FulltankHandler) targetMemberRichMenuID() string {
 	}
 
 	return h.richMenu.MemberRichMenuID()
+}
+
+func (h *FulltankHandler) publishEvent(eventType string, data any) {
+	if h.events == nil {
+		return
+	}
+
+	h.events.Publish(realtime.Event{
+		Type: eventType,
+		Data: data,
+	})
+}
+
+func (h *FulltankHandler) publishRichMenuEvent(lineUserID string, serialNumber string, success bool, linkedRichMenuID string, source string, message string) {
+	h.publishEvent("rich_menu.sync", gin.H{
+		"lineUserId":       lineUserID,
+		"serialNumber":     serialNumber,
+		"success":          success,
+		"linkedRichMenuId": linkedRichMenuID,
+		"targetRichMenuId": h.targetMemberRichMenuID(),
+		"source":           source,
+		"message":          message,
+	})
 }
 
 func (h *FulltankHandler) WarrantyStatus(c *gin.Context) {
@@ -249,6 +290,7 @@ func (h *FulltankHandler) WarrantyStatus(c *gin.Context) {
 	if h.richMenu != nil {
 		if err := h.richMenu.LinkMemberRichMenu(c.Request.Context(), lineUserID); err != nil {
 			log.Printf("link member rich menu during warranty status failed lineUserID=%s warranties=%d: %v", lineUserID, len(items), err)
+			h.publishRichMenuEvent(lineUserID, "", false, currentRichMenuID, "warranty_status", err.Error())
 		} else {
 			richMenuSynced = true
 			currentRichMenuID = h.richMenu.MemberRichMenuID()
@@ -307,6 +349,8 @@ func (h *FulltankHandler) CreateSerial(c *gin.Context) {
 		httpx.Conflict(c, "Serial Number นี้มีอยู่แล้ว")
 		return
 	}
+
+	h.publishEvent("serial_number.created", item)
 
 	c.JSON(http.StatusCreated, item)
 }
