@@ -37,6 +37,41 @@ func NewFulltankHandler(db *gorm.DB, uploadDir string, baseURL string, richMenu 
 	}
 }
 
+type promotionPayload struct {
+	Title       string `json:"title"`
+	Description string `json:"description"`
+	ImageURL    string `json:"imageUrl"`
+	IsActive    *bool  `json:"isActive"`
+	StartsAt    string `json:"startsAt"`
+	EndsAt      string `json:"endsAt"`
+}
+
+func (payload promotionPayload) toModel() (models.Promotion, error) {
+	startsAt, err := parseFlexibleDate(payload.StartsAt)
+	if err != nil {
+		return models.Promotion{}, err
+	}
+
+	endsAt, err := parseFlexibleDate(payload.EndsAt)
+	if err != nil {
+		return models.Promotion{}, err
+	}
+
+	isActive := true
+	if payload.IsActive != nil {
+		isActive = *payload.IsActive
+	}
+
+	return models.Promotion{
+		Title:       strings.TrimSpace(payload.Title),
+		Description: strings.TrimSpace(payload.Description),
+		ImageURL:    strings.TrimSpace(payload.ImageURL),
+		IsActive:    isActive,
+		StartsAt:    startsAt,
+		EndsAt:      endsAt,
+	}, nil
+}
+
 func (h *FulltankHandler) CheckSerial(c *gin.Context) {
 	serial := normalizeSerial(c.Param("serial"))
 	var item models.SerialNumber
@@ -424,9 +459,18 @@ func (h *FulltankHandler) ListPromotions(c *gin.Context) {
 }
 
 func (h *FulltankHandler) CreatePromotion(c *gin.Context) {
-	var input models.Promotion
-	if err := c.ShouldBindJSON(&input); err != nil {
+	var payload promotionPayload
+	if err := c.ShouldBindJSON(&payload); err != nil {
 		httpx.BadRequest(c, "รูปแบบข้อมูลโปรโมชันไม่ถูกต้อง")
+		return
+	}
+	input, err := payload.toModel()
+	if err != nil {
+		httpx.BadRequest(c, "รูปแบบวันที่โปรโมชันไม่ถูกต้อง")
+		return
+	}
+	if input.Title == "" {
+		httpx.BadRequest(c, "กรุณากรอกชื่อโปรโมชัน")
 		return
 	}
 	if err := h.db.Create(&input).Error; err != nil {
@@ -437,9 +481,18 @@ func (h *FulltankHandler) CreatePromotion(c *gin.Context) {
 }
 
 func (h *FulltankHandler) UpdatePromotion(c *gin.Context) {
-	var input models.Promotion
-	if err := c.ShouldBindJSON(&input); err != nil {
+	var payload promotionPayload
+	if err := c.ShouldBindJSON(&payload); err != nil {
 		httpx.BadRequest(c, "รูปแบบข้อมูลโปรโมชันไม่ถูกต้อง")
+		return
+	}
+	input, err := payload.toModel()
+	if err != nil {
+		httpx.BadRequest(c, "รูปแบบวันที่โปรโมชันไม่ถูกต้อง")
+		return
+	}
+	if input.Title == "" {
+		httpx.BadRequest(c, "กรุณากรอกชื่อโปรโมชัน")
 		return
 	}
 	var item models.Promotion
@@ -447,7 +500,15 @@ func (h *FulltankHandler) UpdatePromotion(c *gin.Context) {
 		httpx.NotFound(c, "ไม่พบโปรโมชัน")
 		return
 	}
-	if err := h.db.Model(&item).Updates(input).Error; err != nil {
+	updates := map[string]interface{}{
+		"title":       input.Title,
+		"description": input.Description,
+		"image_url":   input.ImageURL,
+		"is_active":   input.IsActive,
+		"starts_at":   input.StartsAt,
+		"ends_at":     input.EndsAt,
+	}
+	if err := h.db.Model(&item).Updates(updates).Error; err != nil {
 		httpx.Internal(c, "อัปเดตโปรโมชันไม่สำเร็จ")
 		return
 	}
@@ -553,6 +614,25 @@ func parseDate(value string) (*time.Time, error) {
 	}
 
 	return &parsed, nil
+}
+
+func parseFlexibleDate(value string) (*time.Time, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return nil, nil
+	}
+
+	if parsed, err := time.Parse("2006-01-02", value); err == nil {
+		return &parsed, nil
+	}
+
+	parsed, err := time.Parse(time.RFC3339, value)
+	if err != nil {
+		return nil, err
+	}
+
+	normalized := time.Date(parsed.Year(), parsed.Month(), parsed.Day(), 0, 0, 0, 0, time.UTC)
+	return &normalized, nil
 }
 
 func normalizeSerial(value string) string {
