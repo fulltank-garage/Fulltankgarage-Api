@@ -234,13 +234,13 @@ func (h *FulltankHandler) WarrantyStatus(c *gin.Context) {
 		return
 	}
 
-	var item models.WarrantyRegistration
-	if err := h.db.Where("line_user_id = ?", lineUserID).Order("created_at DESC").First(&item).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			httpx.NotFound(c, "ยังไม่พบข้อมูลบัตรรับประกัน")
-			return
-		}
+	var items []models.WarrantyRegistration
+	if err := h.db.Where("line_user_id = ?", lineUserID).Order("created_at DESC").Find(&items).Error; err != nil {
 		httpx.Internal(c, "โหลดข้อมูลบัตรรับประกันไม่สำเร็จ")
+		return
+	}
+	if len(items) == 0 {
+		httpx.NotFound(c, "ยังไม่พบข้อมูลบัตรรับประกัน")
 		return
 	}
 
@@ -248,12 +248,12 @@ func (h *FulltankHandler) WarrantyStatus(c *gin.Context) {
 	currentRichMenuID := ""
 	if h.richMenu != nil {
 		if err := h.richMenu.LinkMemberRichMenu(c.Request.Context(), lineUserID); err != nil {
-			log.Printf("link member rich menu during warranty status failed lineUserID=%s serial=%s: %v", lineUserID, item.SerialNumber, err)
+			log.Printf("link member rich menu during warranty status failed lineUserID=%s warranties=%d: %v", lineUserID, len(items), err)
 		} else {
 			richMenuSynced = true
 			currentRichMenuID = h.richMenu.MemberRichMenuID()
 			if linkedRichMenuID, err := h.richMenu.GetUserRichMenuID(c.Request.Context(), lineUserID); err != nil {
-				log.Printf("get rich menu during warranty status failed lineUserID=%s serial=%s: %v", lineUserID, item.SerialNumber, err)
+				log.Printf("get rich menu during warranty status failed lineUserID=%s warranties=%d: %v", lineUserID, len(items), err)
 			} else if linkedRichMenuID != "" {
 				currentRichMenuID = linkedRichMenuID
 			}
@@ -261,7 +261,8 @@ func (h *FulltankHandler) WarrantyStatus(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"data":             item,
+		"data":             items[0],
+		"items":            items,
 		"richMenuSynced":   richMenuSynced,
 		"linkedRichMenuId": currentRichMenuID,
 		"targetRichMenuId": h.targetMemberRichMenuID(),
