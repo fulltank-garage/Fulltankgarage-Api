@@ -1,11 +1,49 @@
 package models
 
 import (
+	"database/sql/driver"
+	"encoding/json"
 	"time"
 
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
+
+type StringList []string
+
+func (items StringList) Value() (driver.Value, error) {
+	if items == nil {
+		return "[]", nil
+	}
+
+	bytes, err := json.Marshal(items)
+	return string(bytes), err
+}
+
+func (items *StringList) Scan(value interface{}) error {
+	if value == nil {
+		*items = StringList{}
+		return nil
+	}
+
+	var bytes []byte
+	switch typedValue := value.(type) {
+	case []byte:
+		bytes = typedValue
+	case string:
+		bytes = []byte(typedValue)
+	default:
+		*items = StringList{}
+		return nil
+	}
+
+	if len(bytes) == 0 {
+		*items = StringList{}
+		return nil
+	}
+
+	return json.Unmarshal(bytes, items)
+}
 
 type SerialNumber struct {
 	ID           uint      `gorm:"primaryKey;autoIncrement" json:"id"`
@@ -55,16 +93,17 @@ func (w *WarrantyRegistration) BeforeCreate(_ *gorm.DB) error {
 }
 
 type FilmProduct struct {
-	ID          uint      `gorm:"primaryKey;autoIncrement" json:"id"`
-	Slug        string    `gorm:"size:120;not null;uniqueIndex" json:"slug"`
-	Name        string    `gorm:"size:160;not null" json:"name"`
-	Logo        string    `gorm:"size:32" json:"logo"`
-	Summary     string    `gorm:"size:255" json:"summary"`
-	Description string    `gorm:"type:text" json:"description"`
-	ImageURL    string    `gorm:"size:1024" json:"imageUrl"`
-	IsActive    bool      `gorm:"not null;default:true" json:"isActive"`
-	CreatedAt   time.Time `json:"createdAt"`
-	UpdatedAt   time.Time `json:"updatedAt"`
+	ID            uint       `gorm:"primaryKey;autoIncrement" json:"id"`
+	Slug          string     `gorm:"size:120;not null;uniqueIndex" json:"slug"`
+	Name          string     `gorm:"size:160;not null" json:"name"`
+	Logo          string     `gorm:"size:32" json:"logo"`
+	Summary       string     `gorm:"size:255" json:"summary"`
+	Description   string     `gorm:"type:text" json:"description"`
+	ImageURL      string     `gorm:"size:1024" json:"imageUrl"`
+	GalleryImages StringList `gorm:"type:jsonb;default:'[]'" json:"galleryImages"`
+	IsActive      bool       `gorm:"not null;default:true" json:"isActive"`
+	CreatedAt     time.Time  `json:"createdAt"`
+	UpdatedAt     time.Time  `json:"updatedAt"`
 }
 
 func (FilmProduct) TableName() string {
