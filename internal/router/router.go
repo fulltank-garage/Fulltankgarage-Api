@@ -29,7 +29,7 @@ func New(deps Dependencies) *gin.Engine {
 	engine.Static("/assets", "assets")
 	engine.Static("/uploads", deps.Config.UploadDir)
 
-	healthHandler := handlers.NewHealthHandler()
+	healthHandler := handlers.NewHealthHandler(deps.DB)
 	authHandler := handlers.NewAuthHandler(deps.MemberService, deps.AuthService)
 	lineWebhookHandler := handlers.NewLineWebhookHandler(deps.MemberService, deps.Config.LineChannelSecret)
 	memberHandler := handlers.NewMemberHandler(deps.MemberService)
