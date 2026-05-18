@@ -72,7 +72,7 @@ func main() {
 		MemberEvents:  memberEvents,
 	})
 
-	log.Printf("FullTank Garage API listening on :%s", cfg.Port)
+	log.Printf("FULLTANK Garage API listening on :%s", cfg.Port)
 	if err := engine.Run(":" + cfg.Port); err != nil {
 		log.Fatalf("run api: %v", err)
 	}

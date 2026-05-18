@@ -80,7 +80,7 @@ func Load() Config {
 		JWTRefreshTTL: time.Duration(envInt("JWT_REFRESH_TTL_DAYS", 30)) * 24 * time.Hour,
 		AdminEmail:    getenv("ADMIN_EMAIL", "admin@fulltankgarage.local"),
 		AdminPassword: getenv("ADMIN_PASSWORD", "admin1234"),
-		AdminName:     getenv("ADMIN_NAME", "FullTank Garage Admin"),
+		AdminName:     getenv("ADMIN_NAME", "FULLTANK Garage Admin"),
 
 		CORSAllowedOrigins: splitCSV(getenv("CORS_ALLOWED_ORIGINS", "*")),
 
