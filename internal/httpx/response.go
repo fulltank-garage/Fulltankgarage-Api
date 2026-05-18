@@ -43,6 +43,10 @@ func NotFound(c *gin.Context, message string) {
 	c.JSON(http.StatusNotFound, gin.H{"message": message})
 }
 
+func TooManyRequests(c *gin.Context, message string) {
+	c.JSON(http.StatusTooManyRequests, gin.H{"message": message})
+}
+
 func Internal(c *gin.Context, message string) {
 	c.JSON(http.StatusInternalServerError, gin.H{"message": message})
 }

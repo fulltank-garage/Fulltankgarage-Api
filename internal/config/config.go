@@ -123,7 +123,7 @@ func (c Config) Validate() error {
 	requireValue("BASE_URL", c.BaseURL)
 	requireValue("DATABASE_URL", c.DatabaseURL)
 	requireValue("JWT_SECRET", c.JWTSecret)
-	
+
 	if strings.Contains(c.BaseURL, "localhost") || strings.Contains(c.BaseURL, "127.0.0.1") {
 		problems = append(problems, "BASE_URL must be a public HTTPS URL in production")
 	}
@@ -144,6 +144,12 @@ func (c Config) Validate() error {
 	}
 	if c.CacheTTL <= 0 {
 		problems = append(problems, "CACHE_TTL_SECONDS must be greater than 0")
+	}
+	if strings.TrimSpace(c.RedisAddr) == "" {
+		problems = append(problems, "REDIS_ADDR is required in production")
+	}
+	if !c.RedisRequired {
+		problems = append(problems, "REDIS_REQUIRED must be true in production")
 	}
 	if c.JWTRefreshTTL <= c.JWTTTL {
 		problems = append(problems, "JWT_REFRESH_TTL_DAYS must be longer than JWT_TTL_HOURS")
@@ -167,9 +173,6 @@ func (c Config) Warnings() []string {
 		}
 		if c.UploadDir == "uploads" {
 			warnings = append(warnings, "UPLOAD_DIR uses local storage; keep a Railway Volume mounted here or move uploads to object storage")
-		}
-		if !c.RedisRequired {
-			warnings = append(warnings, "REDIS_REQUIRED=false; realtime and cache can continue without Redis but production consistency is weaker")
 		}
 		if c.AdminPassword == "admin1234" {
 			warnings = append(warnings, "ADMIN_PASSWORD is still the default development password")

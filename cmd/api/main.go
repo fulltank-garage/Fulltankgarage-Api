@@ -57,6 +57,8 @@ func main() {
 		log.Fatalf("load member card image service: %v", err)
 	}
 	memberEvents := realtime.NewHub(context.Background(), cacheStore)
+	richMenuQueue := services.NewRichMenuSyncQueue(cacheStore, richMenuService, memberEvents)
+	richMenuQueue.Start(appCtx)
 	pushNotificationService := services.NewPushNotificationService(cfg, pushSubscriptionRepo)
 	memberService := services.NewMemberService(cfg, memberRepo, cacheStore, lineVerifier, richMenuService, memberCardService, memberEvents, pushNotificationService)
 	memberService.StartMemberRichMenuAutoSync(appCtx)
@@ -64,10 +66,12 @@ func main() {
 
 	engine := router.New(router.Dependencies{
 		Config:        cfg,
+		Cache:         cacheStore,
 		DB:            db,
 		MemberService: memberService,
 		AuthService:   authService,
 		RichMenu:      richMenuService,
+		RichMenuQueue: richMenuQueue,
 		PushService:   pushNotificationService,
 		MemberEvents:  memberEvents,
 	})

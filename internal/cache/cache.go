@@ -6,6 +6,7 @@ import (
 	"log"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
 
 	"github.com/fulltank-garage/fulltankgarage-api/internal/config"
@@ -93,4 +94,66 @@ func (s *Store) Delete(ctx context.Context, keys ...string) error {
 	}
 
 	return s.client.Del(ctx, keys...).Err()
+}
+
+func (s *Store) RateLimit(ctx context.Context, key string, limit int64, window time.Duration) (bool, int64, error) {
+	if !s.Enabled() || limit <= 0 || window <= 0 {
+		return true, limit, nil
+	}
+
+	count, err := s.client.Incr(ctx, key).Result()
+	if err != nil {
+		return true, limit, err
+	}
+	if count == 1 {
+		_ = s.client.Expire(ctx, key, window).Err()
+	}
+
+	remaining := limit - count
+	if remaining < 0 {
+		remaining = 0
+	}
+
+	return count <= limit, remaining, nil
+}
+
+func (s *Store) AcquireLock(ctx context.Context, key string, ttl time.Duration) (string, bool, error) {
+	if !s.Enabled() || ttl <= 0 {
+		return "", true, nil
+	}
+
+	token := uuid.NewString()
+	ok, err := s.client.SetNX(ctx, key, token, ttl).Result()
+	if err != nil {
+		return "", false, err
+	}
+
+	return token, ok, nil
+}
+
+func (s *Store) ReleaseLock(ctx context.Context, key string, token string) error {
+	if !s.Enabled() || token == "" {
+		return nil
+	}
+
+	const script = `
+if redis.call("GET", KEYS[1]) == ARGV[1] then
+	return redis.call("DEL", KEYS[1])
+end
+return 0
+`
+	return s.client.Eval(ctx, script, []string{key}, token).Err()
+}
+
+func (s *Store) EnqueueJSON(ctx context.Context, key string, value any) error {
+	if !s.Enabled() {
+		return nil
+	}
+
+	raw, err := json.Marshal(value)
+	if err != nil {
+		return err
+	}
+
+	return s.client.LPush(ctx, key, raw).Err()
 }

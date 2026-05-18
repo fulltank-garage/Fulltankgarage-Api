@@ -13,6 +13,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
+	"github.com/fulltank-garage/fulltankgarage-api/internal/cache"
 	"github.com/fulltank-garage/fulltankgarage-api/internal/httpx"
 	"github.com/fulltank-garage/fulltankgarage-api/internal/models"
 	"github.com/fulltank-garage/fulltankgarage-api/internal/realtime"
@@ -21,18 +22,22 @@ import (
 
 type FulltankHandler struct {
 	db        *gorm.DB
+	cache     *cache.Store
 	uploadDir string
 	baseURL   string
 	richMenu  *services.RichMenuService
+	richQueue *services.RichMenuSyncQueue
 	events    *realtime.Hub
 }
 
-func NewFulltankHandler(db *gorm.DB, uploadDir string, baseURL string, richMenu *services.RichMenuService, events *realtime.Hub) *FulltankHandler {
+func NewFulltankHandler(db *gorm.DB, cacheStore *cache.Store, uploadDir string, baseURL string, richMenu *services.RichMenuService, richQueue *services.RichMenuSyncQueue, events *realtime.Hub) *FulltankHandler {
 	return &FulltankHandler{
 		db:        db,
+		cache:     cacheStore,
 		uploadDir: uploadDir,
 		baseURL:   strings.TrimRight(baseURL, "/"),
 		richMenu:  richMenu,
+		richQueue: richQueue,
 		events:    events,
 	}
 }
@@ -76,6 +81,11 @@ func (payload promotionPayload) toModel() (models.Promotion, error) {
 
 func (h *FulltankHandler) CheckSerial(c *gin.Context) {
 	serial := normalizeSerial(c.Param("serial"))
+	if !h.allowSerialCheck(c, serial) {
+		httpx.TooManyRequests(c, "ตรวจสอบ Serial Number บ่อยเกินไป กรุณารอสักครู่แล้วลองใหม่")
+		return
+	}
+
 	var item models.SerialNumber
 	if err := h.db.Where("serial_number = ?", serial).First(&item).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -95,6 +105,18 @@ func (h *FulltankHandler) RegisterWarranty(c *gin.Context) {
 		httpx.BadRequest(c, "กรุณากรอก Serial Number")
 		return
 	}
+
+	lockKey := "lock:warranty-registration:serial:" + serial
+	lockToken, locked, err := h.acquireSerialLock(c, lockKey)
+	if err != nil {
+		httpx.Internal(c, "เตรียมลงทะเบียนรับประกันไม่สำเร็จ")
+		return
+	}
+	if !locked {
+		httpx.Conflict(c, "Serial Number นี้กำลังถูกลงทะเบียน กรุณารอสักครู่แล้วลองใหม่")
+		return
+	}
+	defer h.releaseSerialLock(c, lockKey, lockToken)
 
 	installDate, err := parseDate(c.PostForm("installDate"))
 	if err != nil {
@@ -174,6 +196,7 @@ func (h *FulltankHandler) RegisterWarranty(c *gin.Context) {
 		if err := h.richMenu.LinkMemberRichMenu(c.Request.Context(), created.LineUserID); err != nil {
 			log.Printf("link member rich menu after warranty registration failed lineUserID=%s serial=%s: %v", created.LineUserID, created.SerialNumber, err)
 			h.publishRichMenuEvent(created.LineUserID, created.SerialNumber, false, currentRichMenuID, "warranty_registration", err.Error())
+			h.enqueueRichMenuRetry(c, created.LineUserID, created.SerialNumber, "warranty_registration_retry")
 		} else {
 			richMenuSynced = true
 			currentRichMenuID = h.richMenu.MemberRichMenuID()
@@ -251,6 +274,7 @@ func (h *FulltankHandler) LinkWarranty(c *gin.Context) {
 		if err := h.richMenu.LinkMemberRichMenu(c.Request.Context(), lineUserID); err != nil {
 			log.Printf("link member rich menu after warranty link failed lineUserID=%s serial=%s: %v", lineUserID, serial, err)
 			h.publishRichMenuEvent(lineUserID, serial, false, currentRichMenuID, "warranty_link", err.Error())
+			h.enqueueRichMenuRetry(c, lineUserID, serial, "warranty_link_retry")
 		} else {
 			richMenuSynced = true
 			currentRichMenuID = h.richMenu.MemberRichMenuID()
@@ -305,6 +329,119 @@ func (h *FulltankHandler) publishRichMenuEvent(lineUserID string, serialNumber s
 	})
 }
 
+func (h *FulltankHandler) enqueueRichMenuRetry(c *gin.Context, lineUserID string, serialNumber string, source string) {
+	if h.richQueue == nil {
+		return
+	}
+
+	h.richQueue.EnqueueMemberLink(c.Request.Context(), lineUserID, serialNumber, source)
+}
+
+func (h *FulltankHandler) allowSerialCheck(c *gin.Context, serial string) bool {
+	if h.cache == nil {
+		return true
+	}
+
+	keys := []string{"rate:serial-check:ip:" + c.ClientIP()}
+	if serial != "" {
+		keys = append(keys, "rate:serial-check:serial:"+serial)
+	}
+
+	for _, key := range keys {
+		allowed, _, err := h.cache.RateLimit(c.Request.Context(), key, 60, time.Minute)
+		if err != nil {
+			continue
+		}
+		if !allowed {
+			return false
+		}
+	}
+
+	return true
+}
+
+func (h *FulltankHandler) acquireSerialLock(c *gin.Context, key string) (string, bool, error) {
+	if h.cache == nil {
+		return "", true, nil
+	}
+
+	return h.cache.AcquireLock(c.Request.Context(), key, 30*time.Second)
+}
+
+func (h *FulltankHandler) releaseSerialLock(c *gin.Context, key string, token string) {
+	if h.cache == nil {
+		return
+	}
+
+	if err := h.cache.ReleaseLock(c.Request.Context(), key, token); err != nil {
+		log.Printf("release serial registration lock: %v", err)
+	}
+}
+
+func (h *FulltankHandler) getCachedList(c *gin.Context, key string, dest any) bool {
+	if h.cache == nil {
+		return false
+	}
+
+	ok, err := h.cache.GetJSON(c.Request.Context(), key, dest)
+	if err != nil {
+		log.Printf("read list cache %s: %v", key, err)
+		return false
+	}
+
+	return ok
+}
+
+func (h *FulltankHandler) setCachedList(c *gin.Context, key string, value any) {
+	if h.cache == nil {
+		return
+	}
+
+	if err := h.cache.SetJSON(c.Request.Context(), key, value); err != nil {
+		log.Printf("write list cache %s: %v", key, err)
+	}
+}
+
+func (h *FulltankHandler) filmCacheKey(c *gin.Context) string {
+	if isPublicListRequest(c) {
+		return "cache:films:public"
+	}
+
+	return "cache:films:admin"
+}
+
+func (h *FulltankHandler) promotionCacheKey(c *gin.Context) string {
+	if isPublicListRequest(c) {
+		return "cache:promotions:public"
+	}
+
+	return "cache:promotions:admin"
+}
+
+func (h *FulltankHandler) clearFilmCache(c *gin.Context) {
+	if h.cache == nil {
+		return
+	}
+
+	if err := h.cache.Delete(c.Request.Context(), "cache:films:public", "cache:films:admin"); err != nil {
+		log.Printf("clear film cache: %v", err)
+	}
+}
+
+func (h *FulltankHandler) clearPromotionCache(c *gin.Context) {
+	if h.cache == nil {
+		return
+	}
+
+	if err := h.cache.Delete(c.Request.Context(), "cache:promotions:public", "cache:promotions:admin"); err != nil {
+		log.Printf("clear promotion cache: %v", err)
+	}
+}
+
+func isPublicListRequest(c *gin.Context) bool {
+	return c.Query("public") == "true" || strings.HasPrefix(c.FullPath(), "/api/public/")
+}
+
 func (h *FulltankHandler) WarrantyStatus(c *gin.Context) {
 	lineUserID := strings.TrimSpace(c.Query("lineUserId"))
 	if lineUserID == "" {
@@ -328,6 +465,7 @@ func (h *FulltankHandler) WarrantyStatus(c *gin.Context) {
 		if err := h.richMenu.LinkMemberRichMenu(c.Request.Context(), lineUserID); err != nil {
 			log.Printf("link member rich menu during warranty status failed lineUserID=%s warranties=%d: %v", lineUserID, len(items), err)
 			h.publishRichMenuEvent(lineUserID, "", false, currentRichMenuID, "warranty_status", err.Error())
+			h.enqueueRichMenuRetry(c, lineUserID, "", "warranty_status_retry")
 		} else {
 			richMenuSynced = true
 			currentRichMenuID = h.richMenu.MemberRichMenuID()
@@ -393,15 +531,23 @@ func (h *FulltankHandler) CreateSerial(c *gin.Context) {
 }
 
 func (h *FulltankHandler) ListFilms(c *gin.Context) {
+	cacheKey := h.filmCacheKey(c)
+	var cached []models.FilmProduct
+	if h.getCachedList(c, cacheKey, &cached) {
+		c.JSON(http.StatusOK, cached)
+		return
+	}
+
 	var items []models.FilmProduct
 	query := h.db.Order("created_at DESC")
-	if c.Query("public") == "true" || strings.HasPrefix(c.FullPath(), "/api/public/") {
+	if isPublicListRequest(c) {
 		query = query.Where("is_active = ?", true)
 	}
 	if err := query.Find(&items).Error; err != nil {
 		httpx.Internal(c, "โหลดข้อมูลฟิล์มไม่สำเร็จ")
 		return
 	}
+	h.setCachedList(c, cacheKey, items)
 	c.JSON(http.StatusOK, items)
 }
 
@@ -418,6 +564,7 @@ func (h *FulltankHandler) CreateFilm(c *gin.Context) {
 		httpx.Internal(c, "บันทึกข้อมูลฟิล์มไม่สำเร็จ")
 		return
 	}
+	h.clearFilmCache(c)
 	c.JSON(http.StatusCreated, input)
 }
 
@@ -436,6 +583,7 @@ func (h *FulltankHandler) UpdateFilm(c *gin.Context) {
 		httpx.Internal(c, "อัปเดตข้อมูลฟิล์มไม่สำเร็จ")
 		return
 	}
+	h.clearFilmCache(c)
 	c.JSON(http.StatusOK, item)
 }
 
@@ -444,19 +592,28 @@ func (h *FulltankHandler) DeleteFilm(c *gin.Context) {
 		httpx.Internal(c, "ลบข้อมูลฟิล์มไม่สำเร็จ")
 		return
 	}
+	h.clearFilmCache(c)
 	c.Status(http.StatusNoContent)
 }
 
 func (h *FulltankHandler) ListPromotions(c *gin.Context) {
+	cacheKey := h.promotionCacheKey(c)
+	var cached []models.Promotion
+	if h.getCachedList(c, cacheKey, &cached) {
+		c.JSON(http.StatusOK, cached)
+		return
+	}
+
 	var items []models.Promotion
 	query := h.db.Order("created_at DESC")
-	if c.Query("public") == "true" || strings.HasPrefix(c.FullPath(), "/api/public/") {
+	if isPublicListRequest(c) {
 		query = query.Where("is_active = ?", true)
 	}
 	if err := query.Find(&items).Error; err != nil {
 		httpx.Internal(c, "โหลดโปรโมชันไม่สำเร็จ")
 		return
 	}
+	h.setCachedList(c, cacheKey, items)
 	c.JSON(http.StatusOK, items)
 }
 
@@ -479,6 +636,7 @@ func (h *FulltankHandler) CreatePromotion(c *gin.Context) {
 		httpx.Internal(c, "บันทึกโปรโมชันไม่สำเร็จ")
 		return
 	}
+	h.clearPromotionCache(c)
 	c.JSON(http.StatusCreated, input)
 }
 
@@ -515,6 +673,7 @@ func (h *FulltankHandler) UpdatePromotion(c *gin.Context) {
 		httpx.Internal(c, "อัปเดตโปรโมชันไม่สำเร็จ")
 		return
 	}
+	h.clearPromotionCache(c)
 	c.JSON(http.StatusOK, item)
 }
 
@@ -523,6 +682,7 @@ func (h *FulltankHandler) DeletePromotion(c *gin.Context) {
 		httpx.Internal(c, "ลบโปรโมชันไม่สำเร็จ")
 		return
 	}
+	h.clearPromotionCache(c)
 	c.Status(http.StatusNoContent)
 }
 

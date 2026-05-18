@@ -4,6 +4,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
+	"github.com/fulltank-garage/fulltankgarage-api/internal/cache"
 	"github.com/fulltank-garage/fulltankgarage-api/internal/config"
 	"github.com/fulltank-garage/fulltankgarage-api/internal/handlers"
 	"github.com/fulltank-garage/fulltankgarage-api/internal/middleware"
@@ -13,10 +14,12 @@ import (
 
 type Dependencies struct {
 	Config        config.Config
+	Cache         *cache.Store
 	DB            *gorm.DB
 	MemberService *services.MemberService
 	AuthService   *services.AuthService
 	RichMenu      *services.RichMenuService
+	RichMenuQueue *services.RichMenuSyncQueue
 	PushService   *services.PushNotificationService
 	MemberEvents  *realtime.Hub
 }
@@ -30,12 +33,12 @@ func New(deps Dependencies) *gin.Engine {
 	engine.Static("/uploads", deps.Config.UploadDir)
 
 	healthHandler := handlers.NewHealthHandler(deps.DB)
-	authHandler := handlers.NewAuthHandler(deps.MemberService, deps.AuthService)
+	authHandler := handlers.NewAuthHandler(deps.MemberService, deps.AuthService, deps.Cache)
 	lineWebhookHandler := handlers.NewLineWebhookHandler(deps.MemberService, deps.Config.LineChannelSecret)
 	memberHandler := handlers.NewMemberHandler(deps.MemberService)
 	memberEventsHandler := handlers.NewMemberEventsHandler(deps.AuthService, deps.MemberEvents)
 	pushNotificationHandler := handlers.NewPushNotificationHandler(deps.PushService)
-	fulltankHandler := handlers.NewFulltankHandler(deps.DB, deps.Config.UploadDir, deps.Config.BaseURL, deps.RichMenu, deps.MemberEvents)
+	fulltankHandler := handlers.NewFulltankHandler(deps.DB, deps.Cache, deps.Config.UploadDir, deps.Config.BaseURL, deps.RichMenu, deps.RichMenuQueue, deps.MemberEvents)
 
 	engine.GET("/health", healthHandler.Check)
 

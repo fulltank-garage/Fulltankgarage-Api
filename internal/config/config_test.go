@@ -26,6 +26,7 @@ func productionConfig() Config {
 		CacheTTL:               5 * time.Minute,
 		CORSAllowedOrigins:     []string{"https://admin.example.com"},
 		UploadDir:              "/mnt/uploads",
+		RedisAddr:              "redis.example.com:6379",
 		RedisRequired:          true,
 		AdminPassword:          "changed-password",
 	}
@@ -66,14 +67,12 @@ func TestWarningsFlagProductionRisks(t *testing.T) {
 	cfg := productionConfig()
 	cfg.CORSAllowedOrigins = []string{"*"}
 	cfg.UploadDir = "uploads"
-	cfg.RedisRequired = false
 	cfg.AdminPassword = "admin1234"
 
 	warnings := strings.Join(cfg.Warnings(), "\n")
 	for _, expected := range []string{
 		"CORS_ALLOWED_ORIGINS is set to *",
 		"UPLOAD_DIR uses local storage",
-		"REDIS_REQUIRED=false",
 		"ADMIN_PASSWORD is still the default",
 	} {
 		if !strings.Contains(warnings, expected) {

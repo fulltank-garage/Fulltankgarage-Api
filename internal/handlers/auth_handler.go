@@ -3,9 +3,11 @@ package handlers
 import (
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/fulltank-garage/fulltankgarage-api/internal/cache"
 	"github.com/fulltank-garage/fulltankgarage-api/internal/httpx"
 	"github.com/fulltank-garage/fulltankgarage-api/internal/services"
 )
@@ -13,12 +15,14 @@ import (
 type AuthHandler struct {
 	memberService *services.MemberService
 	authService   *services.AuthService
+	cache         *cache.Store
 }
 
-func NewAuthHandler(memberService *services.MemberService, authService *services.AuthService) *AuthHandler {
+func NewAuthHandler(memberService *services.MemberService, authService *services.AuthService, cacheStore *cache.Store) *AuthHandler {
 	return &AuthHandler{
 		memberService: memberService,
 		authService:   authService,
+		cache:         cacheStore,
 	}
 }
 
@@ -118,6 +122,11 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		return
 	}
 
+	if !h.allowLoginAttempt(c, input.Email) {
+		httpx.TooManyRequests(c, "พยายามเข้าสู่ระบบบ่อยเกินไป กรุณารอสักครู่แล้วลองใหม่")
+		return
+	}
+
 	session, err := h.authService.Login(input)
 	if err != nil {
 		httpx.Error(c, err)
@@ -125,6 +134,26 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, session)
+}
+
+func (h *AuthHandler) allowLoginAttempt(c *gin.Context, email string) bool {
+	if h.cache == nil {
+		return true
+	}
+
+	ipKey := "rate:admin-login:ip:" + c.ClientIP()
+	emailKey := "rate:admin-login:email:" + strings.ToLower(strings.TrimSpace(email))
+	for _, key := range []string{ipKey, emailKey} {
+		allowed, _, err := h.cache.RateLimit(c.Request.Context(), key, 8, 10*time.Minute)
+		if err != nil {
+			continue
+		}
+		if !allowed {
+			return false
+		}
+	}
+
+	return true
 }
 
 func (h *AuthHandler) Refresh(c *gin.Context) {
