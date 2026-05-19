@@ -100,6 +100,7 @@ type FilmProduct struct {
 	Summary        string     `gorm:"size:255" json:"summary"`
 	Description    string     `gorm:"type:text" json:"description"`
 	ImageURL       string     `gorm:"size:1024" json:"imageUrl"`
+	PriceTableURL  string     `gorm:"size:1024" json:"priceTableImageUrl"`
 	GalleryImages  StringList `gorm:"type:jsonb;default:'[]'" json:"galleryImages"`
 	IRR            string     `gorm:"size:40" json:"irr"`
 	UVProtection   string     `gorm:"size:40" json:"uvProtection"`
