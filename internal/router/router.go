@@ -37,6 +37,7 @@ func New(deps Dependencies) *gin.Engine {
 	lineWebhookHandler := handlers.NewLineWebhookHandler(deps.MemberService, deps.Config.LineChannelSecret)
 	memberHandler := handlers.NewMemberHandler(deps.MemberService)
 	memberEventsHandler := handlers.NewMemberEventsHandler(deps.AuthService, deps.MemberEvents)
+	catalogEventsHandler := handlers.NewCatalogEventsHandler(deps.MemberEvents)
 	pushNotificationHandler := handlers.NewPushNotificationHandler(deps.PushService)
 	fulltankHandler := handlers.NewFulltankHandler(deps.DB, deps.Cache, deps.Config.UploadDir, deps.Config.BaseURL, deps.RichMenu, deps.RichMenuQueue, deps.MemberEvents)
 
@@ -64,6 +65,7 @@ func New(deps Dependencies) *gin.Engine {
 	api.POST("/warranty/register", fulltankHandler.RegisterWarranty)
 	api.GET("/public/films", fulltankHandler.ListFilms)
 	api.GET("/public/promotions", fulltankHandler.ListPromotions)
+	api.GET("/catalog/events", catalogEventsHandler.Subscribe)
 
 	applications := api.Group("/member-applications", middleware.AdminAuth(deps.AuthService))
 	applications.GET("", memberHandler.ListApplications)

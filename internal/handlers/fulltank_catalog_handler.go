@@ -82,6 +82,7 @@ func (h *FulltankHandler) CreateFilm(c *gin.Context) {
 		return
 	}
 	h.clearFilmCache(c)
+	h.publishEvent("film.created", input)
 	c.JSON(http.StatusCreated, input)
 }
 
@@ -100,16 +101,23 @@ func (h *FulltankHandler) UpdateFilm(c *gin.Context) {
 		httpx.Internal(c, "อัปเดตข้อมูลฟิล์มไม่สำเร็จ")
 		return
 	}
+	if err := h.db.First(&item, item.ID).Error; err != nil {
+		httpx.Internal(c, "โหลดข้อมูลฟิล์มที่อัปเดตไม่สำเร็จ")
+		return
+	}
 	h.clearFilmCache(c)
+	h.publishEvent("film.updated", item)
 	c.JSON(http.StatusOK, item)
 }
 
 func (h *FulltankHandler) DeleteFilm(c *gin.Context) {
+	id := c.Param("id")
 	if err := h.db.Delete(&models.FilmProduct{}, c.Param("id")).Error; err != nil {
 		httpx.Internal(c, "ลบข้อมูลฟิล์มไม่สำเร็จ")
 		return
 	}
 	h.clearFilmCache(c)
+	h.publishEvent("film.deleted", gin.H{"id": id})
 	c.Status(http.StatusNoContent)
 }
 
@@ -154,6 +162,7 @@ func (h *FulltankHandler) CreatePromotion(c *gin.Context) {
 		return
 	}
 	h.clearPromotionCache(c)
+	h.publishEvent("promotion.created", input)
 	c.JSON(http.StatusCreated, input)
 }
 
@@ -190,15 +199,22 @@ func (h *FulltankHandler) UpdatePromotion(c *gin.Context) {
 		httpx.Internal(c, "อัปเดตโปรโมชันไม่สำเร็จ")
 		return
 	}
+	if err := h.db.First(&item, item.ID).Error; err != nil {
+		httpx.Internal(c, "โหลดโปรโมชันที่อัปเดตไม่สำเร็จ")
+		return
+	}
 	h.clearPromotionCache(c)
+	h.publishEvent("promotion.updated", item)
 	c.JSON(http.StatusOK, item)
 }
 
 func (h *FulltankHandler) DeletePromotion(c *gin.Context) {
-	if err := h.db.Delete(&models.Promotion{}, c.Param("id")).Error; err != nil {
+	id := c.Param("id")
+	if err := h.db.Delete(&models.Promotion{}, id).Error; err != nil {
 		httpx.Internal(c, "ลบโปรโมชันไม่สำเร็จ")
 		return
 	}
 	h.clearPromotionCache(c)
+	h.publishEvent("promotion.deleted", gin.H{"id": id})
 	c.Status(http.StatusNoContent)
 }
