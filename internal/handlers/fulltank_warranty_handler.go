@@ -21,7 +21,7 @@ func (h *FulltankHandler) CheckSerial(c *gin.Context) {
 	}
 
 	var item models.SerialNumber
-	if err := h.db.Where("serial_number = ?", serial).First(&item).Error; err != nil {
+	if err := h.db.Where("LOWER(serial_number) = ?", serial).First(&item).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			c.JSON(http.StatusOK, gin.H{"serialNumber": serial, "status": "missing"})
 			return
@@ -62,7 +62,7 @@ func (h *FulltankHandler) RegisterWarranty(c *gin.Context) {
 	var usedSerial models.SerialNumber
 	err = h.db.Transaction(func(tx *gorm.DB) error {
 		var serialRecord models.SerialNumber
-		if err := tx.Clauses().Where("serial_number = ?", serial).First(&serialRecord).Error; err != nil {
+		if err := tx.Clauses().Where("LOWER(serial_number) = ?", serial).First(&serialRecord).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				return errSerialMissing
 			}
@@ -78,7 +78,7 @@ func (h *FulltankHandler) RegisterWarranty(c *gin.Context) {
 		}
 
 		created = models.WarrantyRegistration{
-			SerialNumber:    serial,
+			SerialNumber:    serialRecord.SerialNumber,
 			CustomerName:    strings.TrimSpace(c.PostForm("customerName")),
 			Phone:           strings.TrimSpace(c.PostForm("phone")),
 			CarModel:        strings.TrimSpace(c.PostForm("carModel")),
@@ -172,7 +172,7 @@ func (h *FulltankHandler) LinkWarranty(c *gin.Context) {
 	}
 
 	var item models.WarrantyRegistration
-	if err := h.db.Where("serial_number = ?", serial).First(&item).Error; err != nil {
+	if err := h.db.Where("LOWER(serial_number) = ?", serial).First(&item).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			httpx.NotFound(c, "ยังไม่พบข้อมูลบัตรรับประกัน")
 			return
@@ -197,7 +197,7 @@ func (h *FulltankHandler) LinkWarranty(c *gin.Context) {
 		httpx.Internal(c, "ผูกบัตรรับประกันกับ LINE ไม่สำเร็จ")
 		return
 	}
-	if err := h.db.Where("serial_number = ?", serial).First(&item).Error; err != nil {
+	if err := h.db.Where("LOWER(serial_number) = ?", serial).First(&item).Error; err != nil {
 		httpx.Internal(c, "โหลดข้อมูลบัตรรับประกันไม่สำเร็จ")
 		return
 	}
@@ -332,6 +332,14 @@ func (h *FulltankHandler) CreateSerial(c *gin.Context) {
 	item := models.SerialNumber{SerialNumber: normalizeSerial(input.SerialNumber), Status: "available"}
 	if item.SerialNumber == "" {
 		httpx.BadRequest(c, "กรุณากรอก Serial Number")
+		return
+	}
+	var existing models.SerialNumber
+	if err := h.db.Where("LOWER(serial_number) = ?", item.SerialNumber).First(&existing).Error; err == nil {
+		httpx.Conflict(c, "Serial Number นี้มีอยู่แล้ว")
+		return
+	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+		httpx.Internal(c, "ตรวจสอบ Serial Number ไม่สำเร็จ")
 		return
 	}
 	if err := h.db.Create(&item).Error; err != nil {

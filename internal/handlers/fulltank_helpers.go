@@ -46,7 +46,7 @@ func parseFlexibleDate(value string) (*time.Time, error) {
 }
 
 func normalizeSerial(value string) string {
-	return strings.ToUpper(strings.TrimSpace(value))
+	return strings.ToLower(strings.TrimSpace(value))
 }
 
 func slugify(value string) string {
