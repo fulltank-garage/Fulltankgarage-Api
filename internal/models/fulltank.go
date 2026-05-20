@@ -93,21 +93,27 @@ func (w *WarrantyRegistration) BeforeCreate(_ *gorm.DB) error {
 }
 
 type FilmProduct struct {
-	ID            uint       `gorm:"primaryKey;autoIncrement" json:"id"`
-	Slug          string     `gorm:"size:120;not null;uniqueIndex" json:"slug"`
-	Name          string     `gorm:"size:160;not null" json:"name"`
-	Logo          string     `gorm:"size:32" json:"logo"`
-	Summary       string     `gorm:"size:255" json:"summary"`
-	Description   string     `gorm:"type:text" json:"description"`
-	ImageURL      string     `gorm:"size:1024" json:"imageUrl"`
-	PriceTableURL string     `gorm:"size:1024" json:"priceTableImageUrl"`
-	GalleryImages StringList `gorm:"type:jsonb;default:'[]'" json:"galleryImages"`
-	IRR           string     `gorm:"size:40" json:"irr"`
-	UVProtection  string     `gorm:"size:40" json:"uvProtection"`
-	FilmType      string     `gorm:"size:80" json:"filmType"`
-	IsActive      bool       `gorm:"not null;default:true" json:"isActive"`
-	CreatedAt     time.Time  `json:"createdAt"`
-	UpdatedAt     time.Time  `json:"updatedAt"`
+	ID              uint       `gorm:"primaryKey;autoIncrement" json:"id"`
+	Slug            string     `gorm:"size:120;not null;uniqueIndex" json:"slug"`
+	Name            string     `gorm:"size:160;not null" json:"name"`
+	Logo            string     `gorm:"size:32" json:"logo"`
+	Summary         string     `gorm:"size:255" json:"summary"`
+	Description     string     `gorm:"type:text" json:"description"`
+	ImageURL        string     `gorm:"size:1024" json:"imageUrl"`
+	PriceTableURL   string     `gorm:"size:1024" json:"priceTableImageUrl"`
+	GalleryImages   StringList `gorm:"type:jsonb;default:'[]'" json:"galleryImages"`
+	IRR             string     `gorm:"size:40" json:"irr"`
+	UVProtection    string     `gorm:"size:40" json:"uvProtection"`
+	VLT             string     `gorm:"size:40" json:"vlt"`
+	TSER            string     `gorm:"size:40" json:"tser"`
+	VLR             string     `gorm:"size:40" json:"vlr"`
+	FilmType        string     `gorm:"size:80" json:"filmType"`
+	VehicleType     string     `gorm:"size:120" json:"vehicleType"`
+	InstallPosition string     `gorm:"size:160" json:"installPosition"`
+	Highlights      StringList `gorm:"type:jsonb;default:'[]'" json:"highlights"`
+	IsActive        bool       `gorm:"not null;default:true" json:"isActive"`
+	CreatedAt       time.Time  `json:"createdAt"`
+	UpdatedAt       time.Time  `json:"updatedAt"`
 }
 
 func (FilmProduct) TableName() string {
