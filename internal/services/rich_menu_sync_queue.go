@@ -16,6 +16,7 @@ const richMenuSyncQueueKey = "queue:rich-menu-sync"
 type RichMenuSyncJob struct {
 	LineUserID   string `json:"lineUserId"`
 	SerialNumber string `json:"serialNumber"`
+	Target       string `json:"target"`
 	Source       string `json:"source"`
 	Attempts     int    `json:"attempts"`
 }
@@ -35,6 +36,14 @@ func NewRichMenuSyncQueue(cacheStore *cache.Store, richMenu *RichMenuService, ev
 }
 
 func (q *RichMenuSyncQueue) EnqueueMemberLink(ctx context.Context, lineUserID string, serialNumber string, source string) {
+	q.enqueueLink(ctx, lineUserID, serialNumber, "member", source)
+}
+
+func (q *RichMenuSyncQueue) EnqueueRegisterLink(ctx context.Context, lineUserID string, serialNumber string, source string) {
+	q.enqueueLink(ctx, lineUserID, serialNumber, "register", source)
+}
+
+func (q *RichMenuSyncQueue) enqueueLink(ctx context.Context, lineUserID string, serialNumber string, target string, source string) {
 	if q == nil || q.cache == nil || strings.TrimSpace(lineUserID) == "" {
 		return
 	}
@@ -42,7 +51,11 @@ func (q *RichMenuSyncQueue) EnqueueMemberLink(ctx context.Context, lineUserID st
 	job := RichMenuSyncJob{
 		LineUserID:   strings.TrimSpace(lineUserID),
 		SerialNumber: strings.TrimSpace(serialNumber),
+		Target:       strings.TrimSpace(target),
 		Source:       strings.TrimSpace(source),
+	}
+	if job.Target == "" {
+		job.Target = "member"
 	}
 	if job.Source == "" {
 		job.Source = "rich_menu_retry"
@@ -95,9 +108,21 @@ func (q *RichMenuSyncQueue) process(ctx context.Context, job RichMenuSyncJob) {
 		return
 	}
 
-	err := q.richMenu.LinkMemberRichMenu(ctx, lineUserID)
+	target := strings.TrimSpace(job.Target)
+	if target == "" {
+		target = "member"
+	}
+
+	targetRichMenuID := q.richMenu.MemberRichMenuID()
+	linkRichMenu := q.richMenu.LinkMemberRichMenu
+	if target == "register" {
+		targetRichMenuID = q.richMenu.RegisterRichMenuID()
+		linkRichMenu = q.richMenu.LinkRegisterRichMenu
+	}
+
+	err := linkRichMenu(ctx, lineUserID)
 	if err != nil {
-		log.Printf("retry rich menu sync failed lineUserID=%s serial=%s attempts=%d: %v", lineUserID, job.SerialNumber, job.Attempts+1, err)
+		log.Printf("retry rich menu sync failed lineUserID=%s serial=%s target=%s attempts=%d: %v", lineUserID, job.SerialNumber, target, job.Attempts+1, err)
 		q.publish(job, false, "", err.Error())
 		if job.Attempts < 5 {
 			job.Attempts++
@@ -114,7 +139,7 @@ func (q *RichMenuSyncQueue) process(ctx context.Context, job RichMenuSyncJob) {
 		return
 	}
 
-	linkedRichMenuID := q.richMenu.MemberRichMenuID()
+	linkedRichMenuID := targetRichMenuID
 	if currentRichMenuID, err := q.richMenu.GetUserRichMenuID(ctx, lineUserID); err == nil && currentRichMenuID != "" {
 		linkedRichMenuID = currentRichMenuID
 	}
@@ -133,9 +158,19 @@ func (q *RichMenuSyncQueue) publish(job RichMenuSyncJob, success bool, linkedRic
 			"serialNumber":     job.SerialNumber,
 			"success":          success,
 			"linkedRichMenuId": linkedRichMenuID,
-			"targetRichMenuId": q.richMenu.MemberRichMenuID(),
+			"targetRichMenuId": q.targetRichMenuID(job),
 			"source":           job.Source,
 			"message":          message,
 		},
 	})
+}
+
+func (q *RichMenuSyncQueue) targetRichMenuID(job RichMenuSyncJob) string {
+	if q.richMenu == nil {
+		return ""
+	}
+	if strings.TrimSpace(job.Target) == "register" {
+		return q.richMenu.RegisterRichMenuID()
+	}
+	return q.richMenu.MemberRichMenuID()
 }

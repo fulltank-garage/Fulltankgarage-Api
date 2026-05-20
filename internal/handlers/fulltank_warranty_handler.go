@@ -245,7 +245,31 @@ func (h *FulltankHandler) WarrantyStatus(c *gin.Context) {
 		return
 	}
 	if len(items) == 0 {
-		httpx.NotFound(c, "ยังไม่พบข้อมูลบัตรรับประกัน")
+		richMenuSynced := false
+		currentRichMenuID := ""
+		if h.richMenu != nil {
+			if err := h.richMenu.LinkRegisterRichMenu(c.Request.Context(), lineUserID); err != nil {
+				log.Printf("link register rich menu during empty warranty status failed lineUserID=%s: %v", lineUserID, err)
+				h.publishRichMenuEventWithTarget(lineUserID, "", false, currentRichMenuID, h.targetRegisterRichMenuID(), "warranty_status_empty", err.Error())
+				h.enqueueRegisterRichMenuRetry(c, lineUserID, "", "warranty_status_empty_retry")
+			} else {
+				richMenuSynced = true
+				currentRichMenuID = h.richMenu.RegisterRichMenuID()
+				if linkedRichMenuID, err := h.richMenu.GetUserRichMenuID(c.Request.Context(), lineUserID); err != nil {
+					log.Printf("get rich menu during empty warranty status failed lineUserID=%s: %v", lineUserID, err)
+				} else if linkedRichMenuID != "" {
+					currentRichMenuID = linkedRichMenuID
+				}
+				h.publishRichMenuEventWithTarget(lineUserID, "", true, currentRichMenuID, h.targetRegisterRichMenuID(), "warranty_status_empty", "")
+			}
+		}
+
+		c.JSON(http.StatusNotFound, gin.H{
+			"message":          "ยังไม่พบข้อมูลบัตรรับประกัน",
+			"richMenuSynced":   richMenuSynced,
+			"linkedRichMenuId": currentRichMenuID,
+			"targetRichMenuId": h.targetRegisterRichMenuID(),
+		})
 		return
 	}
 

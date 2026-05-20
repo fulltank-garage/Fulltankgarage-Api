@@ -109,6 +109,10 @@ func (s *RichMenuService) LinkRegisterRichMenu(ctx context.Context, lineUserID s
 	return s.linkRichMenu(ctx, lineUserID, s.registerRichMenuID)
 }
 
+func (s *RichMenuService) RegisterRichMenuID() string {
+	return strings.TrimSpace(s.registerRichMenuID)
+}
+
 func (s *RichMenuService) LinkMemberRichMenu(ctx context.Context, lineUserID string) error {
 	return s.linkRichMenu(ctx, lineUserID, s.memberRichMenuID)
 }
