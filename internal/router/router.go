@@ -81,9 +81,11 @@ func New(deps Dependencies) *gin.Engine {
 	adminSerials := api.Group("/serial-numbers", middleware.AdminAuth(deps.AuthService))
 	adminSerials.GET("", fulltankHandler.ListSerials)
 	adminSerials.POST("", fulltankHandler.CreateSerial)
+	adminSerials.POST("/:serial/warranty-registration", fulltankHandler.CreateWarrantyRegistrationForSerial)
 
 	adminWarranty := api.Group("/warranty", middleware.AdminAuth(deps.AuthService))
 	adminWarranty.GET("/registrations", fulltankHandler.ListRegistrations)
+	adminWarranty.PATCH("/registrations/:id", fulltankHandler.UpdateRegistration)
 
 	adminFilms := api.Group("/films", middleware.AdminAuth(deps.AuthService))
 	adminFilms.GET("", fulltankHandler.ListFilms)

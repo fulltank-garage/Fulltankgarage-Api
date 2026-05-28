@@ -4,7 +4,9 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -12,6 +14,50 @@ import (
 	"github.com/fulltank-garage/fulltankgarage-api/internal/httpx"
 	"github.com/fulltank-garage/fulltankgarage-api/internal/models"
 )
+
+type warrantyRegistrationForm struct {
+	CustomerName  string
+	Phone         string
+	CarModel      string
+	LicensePlate  string
+	FilmBrand     string
+	FilmModel     string
+	InstallDate   string
+	Branch        string
+	InstallerName string
+	Remarks       string
+}
+
+func readWarrantyRegistrationForm(c *gin.Context) warrantyRegistrationForm {
+	return warrantyRegistrationForm{
+		CustomerName:  strings.TrimSpace(c.PostForm("customerName")),
+		Phone:         strings.TrimSpace(c.PostForm("phone")),
+		CarModel:      strings.TrimSpace(c.PostForm("carModel")),
+		LicensePlate:  strings.TrimSpace(c.PostForm("licensePlate")),
+		FilmBrand:     strings.TrimSpace(c.PostForm("filmBrand")),
+		FilmModel:     strings.TrimSpace(c.PostForm("filmModel")),
+		InstallDate:   strings.TrimSpace(c.PostForm("installDate")),
+		Branch:        strings.TrimSpace(c.PostForm("branch")),
+		InstallerName: strings.TrimSpace(c.PostForm("installerName")),
+		Remarks:       strings.TrimSpace(c.PostForm("remarks")),
+	}
+}
+
+func applyWarrantyRegistrationForm(item *models.WarrantyRegistration, input warrantyRegistrationForm, installDate *time.Time, receiptFile string) {
+	item.CustomerName = input.CustomerName
+	item.Phone = input.Phone
+	item.CarModel = input.CarModel
+	item.LicensePlate = input.LicensePlate
+	item.FilmBrand = input.FilmBrand
+	item.FilmModel = input.FilmModel
+	item.InstallDate = installDate
+	item.Branch = input.Branch
+	item.InstallerName = input.InstallerName
+	item.Remarks = input.Remarks
+	if receiptFile != "" {
+		item.ReceiptFile = receiptFile
+	}
+}
 
 func (h *FulltankHandler) CheckSerial(c *gin.Context) {
 	serial := normalizeSerial(c.Param("serial"))
@@ -310,6 +356,52 @@ func (h *FulltankHandler) ListRegistrations(c *gin.Context) {
 	c.JSON(http.StatusOK, items)
 }
 
+func (h *FulltankHandler) UpdateRegistration(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil || id <= 0 {
+		httpx.BadRequest(c, "ข้อมูลลูกค้าไม่ถูกต้อง")
+		return
+	}
+
+	input := readWarrantyRegistrationForm(c)
+	if input.CustomerName == "" || input.Phone == "" {
+		httpx.BadRequest(c, "กรุณากรอกชื่อลูกค้าและเบอร์โทร")
+		return
+	}
+
+	installDate, err := parseDate(input.InstallDate)
+	if err != nil {
+		httpx.BadRequest(c, "รูปแบบวันที่ติดตั้งไม่ถูกต้อง")
+		return
+	}
+
+	var item models.WarrantyRegistration
+	if err := h.db.First(&item, id).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			httpx.NotFound(c, "ไม่พบข้อมูลลูกค้า")
+			return
+		}
+		httpx.Internal(c, "โหลดข้อมูลลูกค้าไม่สำเร็จ")
+		return
+	}
+
+	receiptFile, err := h.saveReceipt(c)
+	if err != nil {
+		httpx.Internal(c, "อัปโหลดรูปใบเสร็จไม่สำเร็จ")
+		return
+	}
+
+	applyWarrantyRegistrationForm(&item, input, installDate, receiptFile)
+	if err := h.db.Save(&item).Error; err != nil {
+		httpx.Internal(c, "บันทึกข้อมูลลูกค้าไม่สำเร็จ")
+		return
+	}
+
+	h.publishEvent("warranty_registration.updated", item)
+
+	c.JSON(http.StatusOK, item)
+}
+
 func (h *FulltankHandler) ListSerials(c *gin.Context) {
 	var items []models.SerialNumber
 	if err := h.db.Order("created_at DESC").Find(&items).Error; err != nil {
@@ -350,4 +442,92 @@ func (h *FulltankHandler) CreateSerial(c *gin.Context) {
 	h.publishEvent("serial_number.created", item)
 
 	c.JSON(http.StatusCreated, item)
+}
+
+func (h *FulltankHandler) CreateWarrantyRegistrationForSerial(c *gin.Context) {
+	serial := normalizeSerial(c.Param("serial"))
+	if serial == "" {
+		httpx.BadRequest(c, "กรุณาระบุ Serial Number")
+		return
+	}
+
+	input := readWarrantyRegistrationForm(c)
+	if input.CustomerName == "" || input.Phone == "" {
+		httpx.BadRequest(c, "กรุณากรอกชื่อลูกค้าและเบอร์โทร")
+		return
+	}
+
+	installDate, err := parseDate(input.InstallDate)
+	if err != nil {
+		httpx.BadRequest(c, "รูปแบบวันที่ติดตั้งไม่ถูกต้อง")
+		return
+	}
+
+	lockKey := "lock:warranty-registration:serial:" + serial
+	lockToken, locked, err := h.acquireSerialLock(c, lockKey)
+	if err != nil {
+		httpx.Internal(c, "เตรียมเพิ่มข้อมูลลูกค้าไม่สำเร็จ")
+		return
+	}
+	if !locked {
+		httpx.Conflict(c, "Serial Number นี้กำลังถูกใช้งาน กรุณารอสักครู่แล้วลองใหม่")
+		return
+	}
+	defer h.releaseSerialLock(c, lockKey, lockToken)
+
+	var created models.WarrantyRegistration
+	var usedSerial models.SerialNumber
+	err = h.db.Transaction(func(tx *gorm.DB) error {
+		var serialRecord models.SerialNumber
+		if err := tx.Where("LOWER(serial_number) = ?", serial).First(&serialRecord).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return errSerialMissing
+			}
+			return err
+		}
+		if serialRecord.Status != "available" {
+			return errSerialUsed
+		}
+
+		receiptFile, err := h.saveReceipt(c)
+		if err != nil {
+			return err
+		}
+
+		created = models.WarrantyRegistration{
+			SerialNumber: serialRecord.SerialNumber,
+			ReceiptFile:  receiptFile,
+		}
+		applyWarrantyRegistrationForm(&created, input, installDate, receiptFile)
+
+		if err := tx.Create(&created).Error; err != nil {
+			return err
+		}
+
+		if err := tx.Model(&serialRecord).Update("status", "used").Error; err != nil {
+			return err
+		}
+		serialRecord.Status = "used"
+		usedSerial = serialRecord
+		return nil
+	})
+	if err != nil {
+		switch {
+		case errors.Is(err, errSerialMissing):
+			httpx.NotFound(c, "ไม่พบ Serial Number นี้")
+		case errors.Is(err, errSerialUsed):
+			httpx.Conflict(c, "Serial Number นี้ถูกใช้งานแล้ว")
+		default:
+			httpx.Internal(c, "เพิ่มข้อมูลลูกค้าไม่สำเร็จ")
+		}
+		return
+	}
+
+	h.publishEvent("warranty_registration.created", created)
+	h.publishEvent("serial_number.updated", usedSerial)
+
+	c.JSON(http.StatusCreated, gin.H{
+		"registration": created,
+		"serialNumber": usedSerial,
+	})
 }
